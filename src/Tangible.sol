@@ -10,7 +10,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {IExchange} from "./interfaces/IExchange.sol";
 import {UniswapV3Swapper} from "@periphery/swappers/UniswapV3Swapper.sol";
 
-contract Strategy is BaseTokenizedStrategy, UniswapV3Swapper {
+contract Tangible is BaseTokenizedStrategy, UniswapV3Swapper {
     using SafeERC20 for ERC20;
 
     IExchange public constant exchange =
@@ -24,9 +24,10 @@ contract Strategy is BaseTokenizedStrategy, UniswapV3Swapper {
     // Difference between DAI and USDR decimals.
     uint256 internal constant scaler = 1e9;
 
-    constructor(address _asset, string memory _name)
-        BaseTokenizedStrategy(_asset, _name)
-    {
+    constructor(
+        address _asset,
+        string memory _name
+    ) BaseTokenizedStrategy(_asset, _name) {
         ERC20(asset).safeApprove(address(exchange), type(uint256).max);
         ERC20(usdr).safeApprove(address(exchange), type(uint256).max);
 
@@ -149,10 +150,9 @@ contract Strategy is BaseTokenizedStrategy, UniswapV3Swapper {
         _setUniFees(_token0, _token1, _fee);
     }
 
-    function setMinAmountToSell(uint256 _minAmountToSell)
-        external
-        onlyManagement
-    {
+    function setMinAmountToSell(
+        uint256 _minAmountToSell
+    ) external onlyManagement {
         minAmountToSell = _minAmountToSell;
     }
 

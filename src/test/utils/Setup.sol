@@ -6,7 +6,7 @@ import {ExtendedTest} from "./ExtendedTest.sol";
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-import {Strategy} from "../../Strategy.sol";
+import {Tangible} from "../../Tangible.sol";
 import {IStrategyInterface} from "../../interfaces/IStrategyInterface.sol";
 
 // Inherit the events so they can be checked if desired.
@@ -83,7 +83,7 @@ contract Setup is ExtendedTest, IEvents {
     function setUpStrategy() public returns (address) {
         // we save the strategy as a IStrategyInterface to give it the needed interface
         IStrategyInterface _strategy = IStrategyInterface(
-            address(new Strategy(address(asset), "Tokenized Strategy"))
+            address(new Tangible(address(asset), "Tokenized Strategy"))
         );
 
         // set keeper
@@ -133,11 +133,7 @@ contract Setup is ExtendedTest, IEvents {
         assertEq(_totalAssets, _totalDebt + _totalIdle, "!Added");
     }
 
-    function airdrop(
-        ERC20 _asset,
-        address _to,
-        uint256 _amount
-    ) public {
+    function airdrop(ERC20 _asset, address _to, uint256 _amount) public {
         uint256 balanceBefore = _asset.balanceOf(_to);
         deal(address(_asset), _to, balanceBefore + _amount);
     }
