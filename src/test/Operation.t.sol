@@ -115,9 +115,6 @@ contract OperationTest is Setup {
         uint256 toAirdrop = 10e18;
         airdrop(ERC20(TNGBL), address(strategy), toAirdrop);
 
-        vm.prank(management);
-        strategy.setUniFees(address(asset), TNGBL, 3000);
-
         // Report profit
         vm.prank(keeper);
         (uint256 profit, uint256 loss) = strategy.report();
