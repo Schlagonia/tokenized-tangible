@@ -10,7 +10,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {IExchange} from "./interfaces/IExchange.sol";
 import {UniswapV3Swapper} from "@periphery/swappers/UniswapV3Swapper.sol";
 
-import {SolidlySwapper} from "./SolidlySwapper.sol";
+import {SolidlySwapper} from "@periphery/swappers/SolidlySwapper.sol";
 
 contract Tangible is BaseTokenizedStrategy, SolidlySwapper {
     using SafeERC20 for ERC20;
