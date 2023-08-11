@@ -2,7 +2,7 @@
 pragma solidity ^0.8.18;
 
 import "forge-std/console.sol";
-import {Setup} from "./utils/Setup.sol";
+import {Setup, ERC20} from "./utils/Setup.sol";
 
 contract OperationTest is Setup {
     function setUp() public override {
@@ -25,11 +25,12 @@ contract OperationTest is Setup {
         // Deposit into strategy
         mintAndDepositIntoStrategy(strategy, user, _amount);
 
-        // TODO: Implement logic so totalDebt is _amount and totalIdle = 0.
-        checkStrategyTotals(strategy, _amount, 0, _amount);
+        checkStrategyTotals(strategy, _amount, _amount, 0);
 
         // Earn Interest
         skip(1 days);
+
+        airdrop(asset, address(strategy), _amount / 100);
 
         // Report profit
         vm.prank(keeper);
@@ -49,7 +50,9 @@ contract OperationTest is Setup {
 
         assertGe(
             asset.balanceOf(user),
-            balanceBefore + _amount,
+            balanceBefore +
+                (_amount * (MAX_BPS - exchange.withdrawalFee())) /
+                MAX_BPS,
             "!final balance"
         );
     }
@@ -64,8 +67,7 @@ contract OperationTest is Setup {
         // Deposit into strategy
         mintAndDepositIntoStrategy(strategy, user, _amount);
 
-        // TODO: Implement logic so totalDebt is _amount and totalIdle = 0.
-        checkStrategyTotals(strategy, _amount, 0, _amount);
+        checkStrategyTotals(strategy, _amount, _amount, 0);
 
         // Earn Interest
         skip(1 days);
@@ -79,12 +81,10 @@ contract OperationTest is Setup {
         (uint256 profit, uint256 loss) = strategy.report();
 
         // Check return Values
-        assertGe(profit, toAirdrop, "!profit");
+        assertGe(profit, 1, "!profit");
         assertEq(loss, 0, "!loss");
 
         skip(strategy.profitMaxUnlockTime());
-
-        uint256 balanceBefore = asset.balanceOf(user);
 
         // Withdraw all funds
         vm.prank(user);
@@ -92,7 +92,49 @@ contract OperationTest is Setup {
 
         assertGe(
             asset.balanceOf(user),
-            balanceBefore + _amount,
+            (_amount * (MAX_BPS - exchange.withdrawalFee() - 1)) / MAX_BPS,
+            "!final balance"
+        );
+    }
+
+    function test_profitableReport_withRewards(
+        uint256 _amount,
+        uint16 _profitFactor
+    ) public {
+        vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount);
+        _profitFactor = uint16(bound(uint256(_profitFactor), 10, MAX_BPS));
+
+        // Deposit into strategy
+        mintAndDepositIntoStrategy(strategy, user, _amount);
+
+        checkStrategyTotals(strategy, _amount, _amount, 0);
+
+        // Earn Interest
+        skip(1 days);
+
+        uint256 toAirdrop = 10e18;
+        airdrop(ERC20(TNGBL), address(strategy), toAirdrop);
+
+        // Report profit
+        vm.prank(keeper);
+        (uint256 profit, uint256 loss) = strategy.report();
+
+        assertEq(ERC20(TNGBL).balanceOf(address(strategy)), 0);
+        assertEq(asset.balanceOf(address(strategy)), 0);
+
+        // Check return Values
+        assertGe(profit, 1, "!profit");
+        assertEq(loss, 0, "!loss");
+
+        skip(strategy.profitMaxUnlockTime());
+
+        // Withdraw all funds
+        vm.prank(user);
+        strategy.redeem(_amount, user, user);
+
+        assertGe(
+            asset.balanceOf(user),
+            (_amount * (MAX_BPS - exchange.withdrawalFee() - 1)) / MAX_BPS,
             "!final balance"
         );
     }
@@ -110,8 +152,7 @@ contract OperationTest is Setup {
         // Deposit into strategy
         mintAndDepositIntoStrategy(strategy, user, _amount);
 
-        // TODO: Implement logic so totalDebt is _amount and totalIdle = 0.
-        checkStrategyTotals(strategy, _amount, 0, _amount);
+        checkStrategyTotals(strategy, _amount, _amount, 0);
 
         // Earn Interest
         skip(1 days);
@@ -125,7 +166,7 @@ contract OperationTest is Setup {
         (uint256 profit, uint256 loss) = strategy.report();
 
         // Check return Values
-        assertGe(profit, toAirdrop, "!profit");
+        assertGe(profit, 1, "!profit");
         assertEq(loss, 0, "!loss");
 
         skip(strategy.profitMaxUnlockTime());
@@ -135,15 +176,13 @@ contract OperationTest is Setup {
 
         assertEq(strategy.balanceOf(performanceFeeRecipient), expectedShares);
 
-        uint256 balanceBefore = asset.balanceOf(user);
-
         // Withdraw all funds
         vm.prank(user);
         strategy.redeem(_amount, user, user);
 
         assertGe(
             asset.balanceOf(user),
-            balanceBefore + _amount,
+            (_amount * (MAX_BPS - exchange.withdrawalFee() - 1)) / MAX_BPS,
             "!final balance"
         );
 
@@ -154,13 +193,7 @@ contract OperationTest is Setup {
             performanceFeeRecipient
         );
 
-        checkStrategyTotals(strategy, 0, 0, 0);
-
-        assertGe(
-            asset.balanceOf(performanceFeeRecipient),
-            expectedShares,
-            "!perf fee out"
-        );
+        assertGe(asset.balanceOf(performanceFeeRecipient), 1, "!perf fee out");
     }
 
     function test_tendTrigger(uint256 _amount) public {

@@ -6,11 +6,13 @@ import {ExtendedTest} from "./ExtendedTest.sol";
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-import {Strategy} from "../../Strategy.sol";
+import {Tangible} from "../../Tangible.sol";
 import {IStrategyInterface} from "../../interfaces/IStrategyInterface.sol";
 
 // Inherit the events so they can be checked if desired.
 import {IEvents} from "@tokenized-strategy/interfaces/IEvents.sol";
+
+import {IExchange} from "../../interfaces/IExchange.sol";
 
 interface IFactory {
     function governance() external view returns (address);
@@ -41,17 +43,23 @@ contract Setup is ExtendedTest, IEvents {
     uint256 public MAX_BPS = 10_000;
 
     // Fuzz from $0.01 of 1e6 stable coins up to 1 trillion of a 1e18 coin
-    uint256 public maxFuzzAmount = 1e30;
-    uint256 public minFuzzAmount = 10_000;
+    uint256 public maxFuzzAmount = 100_000e18;
+    uint256 public minFuzzAmount = 1e18;
 
     // Default prfot max unlock time is set for 10 days
     uint256 public profitMaxUnlockTime = 10 days;
+
+    IExchange public constant exchange =
+        IExchange(0x195F7B233947d51F4C3b756ad41a5Ddb34cEBCe0);
+
+    address public constant usdr = 0x40379a439D4F6795B6fc9aa5687dB461677A2dBa;
+    address public constant TNGBL = 0x49e6A20f1BBdfEeC2a8222E052000BbB14EE6007;
 
     function setUp() public virtual {
         _setTokenAddrs();
 
         // Set asset
-        asset = ERC20(tokenAddrs["DAI"]);
+        asset = ERC20(0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063);
 
         // Set decimals
         decimals = asset.decimals();
@@ -61,19 +69,21 @@ contract Setup is ExtendedTest, IEvents {
 
         factory = strategy.FACTORY();
 
-        // label all the used addresses for traces
+        vm.label(usdr, "USDR");
         vm.label(keeper, "keeper");
         vm.label(factory, "factory");
         vm.label(address(asset), "asset");
+        vm.label(TNGBL, "Tangible Token");
         vm.label(management, "management");
         vm.label(address(strategy), "strategy");
+        vm.label(address(exchange), "Exchange");
         vm.label(performanceFeeRecipient, "performanceFeeRecipient");
     }
 
     function setUpStrategy() public returns (address) {
         // we save the strategy as a IStrategyInterface to give it the needed interface
         IStrategyInterface _strategy = IStrategyInterface(
-            address(new Strategy(address(asset), "Tokenized Strategy"))
+            address(new Tangible(address(asset), "Tokenized Strategy"))
         );
 
         // set keeper
