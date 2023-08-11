@@ -11,11 +11,10 @@ import {IExchange} from "./interfaces/IExchange.sol";
 import {UniswapV3Swapper} from "@periphery/swappers/UniswapV3Swapper.sol";
 
 import {SolidlySwapper} from "@periphery/swappers/SolidlySwapper.sol";
+import {HealthCheck} from "@periphery/HealthCheck/HealthCheck.sol";
 
-contract Tangible is BaseTokenizedStrategy, SolidlySwapper {
+contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
     using SafeERC20 for ERC20;
-
-    uint256 internal constant MAX_BPS = 10_000;
 
     IExchange public constant exchange =
         IExchange(0x195F7B233947d51F4C3b756ad41a5Ddb34cEBCe0);
@@ -156,9 +155,20 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper {
 
         _totalAssets =
             ERC20(asset).balanceOf(address(this)) +
-            (ERC20(usdr).balanceOf(address(this)) * scaler);
+            // Use the max we could current get out for the usdr balance.
+            _getAmountOut(usdr, asset, ERC20(usdr).balanceOf(address(this)));
+
+        // Health check the amounts since it relys on swap values.
+        if (doHealthCheck) {
+            require(_executeHealthCheck(_totalAssets), "!healthcheck");
+        }
     }
 
+    /*//////////////////////////////////////////////////////////////
+                        PERIPHERY SETTERS
+    //////////////////////////////////////////////////////////////*/
+
+    // Set stable bool mapping for the solidly swapper
     function setStable(
         address _token0,
         address _token1,
@@ -167,10 +177,30 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper {
         _setStable(_token0, _token1, _stable);
     }
 
+    // Set the minimum we want the swapper to sell
     function setMinAmountToSell(
         uint256 _minAmountToSell
     ) external onlyManagement {
         minAmountToSell = _minAmountToSell;
+    }
+
+    // Set the max profit the healthcheck should allow
+    function setProfitLimitRatio(
+        uint256 _profitLimitRatio
+    ) external onlyManagement {
+        _setProfitLimitRatio(_profitLimitRatio);
+    }
+
+    // Set the max loss the healthcheck should allow
+    function setLossLimitRatio(
+        uint256 _lossLimitRatio
+    ) external onlyManagement {
+        _setLossLimitRatio(_lossLimitRatio);
+    }
+
+    // Set if the strategy should do the healthcheck.
+    function setDoHealthCheck(bool _doHealthCheck) external onlyManagement {
+        doHealthCheck = _doHealthCheck;
     }
 
     /**
