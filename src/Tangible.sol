@@ -23,8 +23,8 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
 
     function _onlyEmergencyAuthorized() internal view {
         require(
-            TokenizedStrategy.isManagement(msg.sender) ||
-                msg.sender == emergencyAdmin,
+            msg.sender == emergencyAdmin ||
+                msg.sender == TokenizedStrategy.management(),
             "!emergency authorizezd"
         );
     }
@@ -225,7 +225,7 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
      */
     function availableDepositLimit(
         address /*_owner*/
-    ) public view virtual returns (uint256) {
+    ) public view override returns (uint256) {
         if (paused) return 0;
 
         return type(uint256).max;
@@ -251,7 +251,7 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
      */
     function availableWithdrawLimit(
         address /*_owner*/
-    ) public view virtual returns (uint256) {
+    ) public view override returns (uint256) {
         if (paused) return 0;
 
         return type(uint256).max;
