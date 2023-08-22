@@ -40,6 +40,11 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
         router = 0x06374F57991CDc836E5A318569A910FE6456D230;
         // Set the asset => usdr pool as the stable version.
         _setStable(asset, usdr, true);
+
+        // Default to use the healthcheck.
+        doHealthCheck = true;
+        // Lower the profit limit to 1% since we use swap values.
+        _setProfitLimitRatio(100);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -108,8 +113,7 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
         );
 
         // Get the expected amount of `asset` out with the withdrawal fee.
-        uint256 outWithFee = (_amount -
-            ((_amount * exchange.withdrawalFee()) / MAX_BPS)) * scaler;
+        uint256 outWithFee = _getAmountOutWithFee(_amount);
 
         // If we can get more from the Pearl pool use that.
         if (_getAmountOut(usdr, asset, _amount) > outWithFee) {
@@ -117,6 +121,14 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
         } else {
             exchange.swapToUnderlying(_amount, address(this));
         }
+    }
+
+    function _getAmountOutWithFee(
+        uint256 _amountIn
+    ) internal view returns (uint256) {
+        return
+            (_amountIn - ((_amountIn * exchange.withdrawalFee()) / MAX_BPS)) *
+            scaler;
     }
 
     /**
@@ -153,10 +165,15 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
             _swapFrom(TNGBL, usdr, ERC20(TNGBL).balanceOf(address(this)), 0);
         }
 
+        uint256 usdrBalance = ERC20(usdr).balanceOf(address(this));
+
         _totalAssets =
             ERC20(asset).balanceOf(address(this)) +
             // Use the max we could current get out for the usdr balance.
-            _getAmountOut(usdr, asset, ERC20(usdr).balanceOf(address(this)));
+            Math.max(
+                _getAmountOut(usdr, asset, usdrBalance),
+                _getAmountOutWithFee(usdrBalance)
+            );
 
         // Health check the amounts since it relys on swap values.
         if (doHealthCheck) {
