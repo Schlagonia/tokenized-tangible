@@ -25,7 +25,7 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
         require(
             msg.sender == emergencyAdmin ||
                 msg.sender == TokenizedStrategy.management(),
-            "!emergency authorizezd"
+            "!emergency authorized"
         );
     }
 
