@@ -8,7 +8,6 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {IExchange} from "./interfaces/IExchange.sol";
-import {UniswapV3Swapper} from "@periphery/swappers/UniswapV3Swapper.sol";
 
 import {SolidlySwapper} from "@periphery/swappers/SolidlySwapper.sol";
 import {HealthCheck} from "@periphery/HealthCheck/HealthCheck.sol";
@@ -40,6 +39,9 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
         router = 0x06374F57991CDc836E5A318569A910FE6456D230;
         // Set the asset => usdr pool as the stable version.
         _setStable(asset, usdr, true);
+
+        // Any reason why health check was not on by default?
+        doHealthCheck = true;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -169,6 +171,8 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
     //////////////////////////////////////////////////////////////*/
 
     // Set stable bool mapping for the solidly swapper
+    // Not 100% related to this strategy, but it might be better for
+    // SolidlySwapper to have this method and be overridable if needed.
     function setStable(
         address _token0,
         address _token1,
@@ -199,6 +203,8 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
     }
 
     // Set if the strategy should do the healthcheck.
+    // How come this is not part of the HealthCheck api?
+    // I would move it there.
     function setDoHealthCheck(bool _doHealthCheck) external onlyManagement {
         doHealthCheck = _doHealthCheck;
     }
