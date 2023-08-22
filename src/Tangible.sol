@@ -16,6 +16,19 @@ import {HealthCheck} from "@periphery/HealthCheck/HealthCheck.sol";
 contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
     using SafeERC20 for ERC20;
 
+    modifier onlyEmergencyAuthorized() {
+        _onlyEmergencyAuthorized();
+        _;
+    }
+
+    function _onlyEmergencyAuthorized() internal view {
+        require(
+            TokenizedStrategy.isManagement(msg.sender) ||
+                msg.sender == emergencyAdmin,
+            "!emergency authorizezd"
+        );
+    }
+
     IExchange public constant exchange =
         IExchange(0x195F7B233947d51F4C3b756ad41a5Ddb34cEBCe0);
 
@@ -26,6 +39,12 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
 
     // Difference between ASSET and USDR decimals.
     uint256 internal constant scaler = 1e9;
+
+    // State of strategy.
+    bool public paused;
+
+    // Can pause strategy.
+    address public emergencyAdmin;
 
     constructor(
         address _asset,
@@ -158,6 +177,8 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
         override
         returns (uint256 _totalAssets)
     {
+        require(!paused, "paused");
+
         if (!TokenizedStrategy.isShutdown()) {
             // Swap any loose Tangible if applicable.
             // We can go directly -> USDR.
@@ -179,6 +200,61 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
         if (doHealthCheck) {
             require(_executeHealthCheck(_totalAssets), "!healthcheck");
         }
+    }
+
+    /**
+     * @notice Gets the max amount of `asset` that an address can deposit.
+     * @dev Defaults to an unlimited amount for any address. But can
+     * be overriden by strategists.
+     *
+     * This function will be called before any deposit or mints to enforce
+     * any limits desired by the strategist. This can be used for either a
+     * traditional deposit limit or for implementing a whitelist etc.
+     *
+     *   EX:
+     *      if(isAllowed[_owner]) return super.availableDepositLimit(_owner);
+     *
+     * This does not need to take into account any conversion rates
+     * from shares to assets. But should know that any non max uint256
+     * amounts may be converted to shares. So it is recommended to keep
+     * custom amounts low enough as not to cause overflow when multiplied
+     * by `totalSupply`.
+     *
+     * @param . The address that is depositing into the strategy.
+     * @return . The available amount the `_owner` can deposit in terms of `asset`
+     */
+    function availableDepositLimit(
+        address /*_owner*/
+    ) public view virtual returns (uint256) {
+        if (paused) return 0;
+
+        return type(uint256).max;
+    }
+
+    /**
+     * @notice Gets the max amount of `asset` that can be withdrawn.
+     * @dev Defaults to an unlimited amount for any address. But can
+     * be overriden by strategists.
+     *
+     * This function will be called before any withdraw or redeem to enforce
+     * any limits desired by the strategist. This can be used for illiquid
+     * or sandwichable strategies. It should never be lower than `totalIdle`.
+     *
+     *   EX:
+     *       return TokenIzedStrategy.totalIdle();
+     *
+     * This does not need to take into account the `_owner`'s share balance
+     * or conversion rates from shares to assets.
+     *
+     * @param . The address that is withdrawing from the strategy.
+     * @return . The available amount that can be withdrawn in terms of `asset`
+     */
+    function availableWithdrawLimit(
+        address /*_owner*/
+    ) public view virtual returns (uint256) {
+        if (paused) return 0;
+
+        return type(uint256).max;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -218,6 +294,16 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
     // Set if the strategy should do the healthcheck.
     function setDoHealthCheck(bool _doHealthCheck) external onlyManagement {
         doHealthCheck = _doHealthCheck;
+    }
+
+    function setPauseState(bool _state) external onlyEmergencyAuthorized {
+        paused = _state;
+    }
+
+    function setEmergencyAdmin(
+        address _emergencyAdmin
+    ) external onlyManagement {
+        emergencyAdmin = _emergencyAdmin;
     }
 
     /**
