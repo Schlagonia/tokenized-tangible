@@ -8,7 +8,6 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {IExchange} from "./interfaces/IExchange.sol";
-import {UniswapV3Swapper} from "@periphery/swappers/UniswapV3Swapper.sol";
 
 import {SolidlySwapper} from "@periphery/swappers/SolidlySwapper.sol";
 import {HealthCheck} from "@periphery/HealthCheck/HealthCheck.sol";
@@ -32,13 +31,11 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
     IExchange public constant exchange =
         IExchange(0x195F7B233947d51F4C3b756ad41a5Ddb34cEBCe0);
 
-    // Token to swap DAI to
-    address public constant usdr = 0x40379a439D4F6795B6fc9aa5687dB461677A2dBa;
-    // Token that gets airdropped.
+    address public constant USDR = 0x40379a439D4F6795B6fc9aa5687dB461677A2dBa;
     address public constant TNGBL = 0x49e6A20f1BBdfEeC2a8222E052000BbB14EE6007;
+    address public constant DAI = 0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063;
 
-    // Difference between ASSET and USDR decimals.
-    uint256 internal constant scaler = 1e9;
+    uint8 internal decimals;
 
     // State of strategy.
     bool public paused;
@@ -50,15 +47,18 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
         address _asset,
         string memory _name
     ) BaseTokenizedStrategy(_asset, _name) {
-        ERC20(asset).safeApprove(address(exchange), type(uint256).max);
-        ERC20(usdr).safeApprove(address(exchange), type(uint256).max);
+        if (asset == DAI) {
+            ERC20(asset).safeApprove(address(exchange), type(uint256).max);
+            ERC20(USDR).safeApprove(address(exchange), type(uint256).max);
+        }
 
+        decimals = ERC20(asset).decimals();
         // Set uni swapper values
         // Set DAI as the base so can go straight from TNGBL => DAI
-        base = usdr;
+        base = USDR;
         router = 0x06374F57991CDc836E5A318569A910FE6456D230;
-        // Set the asset => usdr pool as the stable version.
-        _setStable(asset, usdr, true);
+        // Set the asset => USDR pool as the stable version.
+        _setStable(asset, USDR, true);
 
         // Default to use the healthcheck.
         doHealthCheck = true;
@@ -86,15 +86,19 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
     }
 
     function _swapFromUnderlying(uint256 _amount) internal {
-        // Get the expected amount of `asset` out with the withdrawal fee.
-        uint256 outWithFee = (_amount -
-            ((_amount * exchange.depositFee()) / MAX_BPS)) / scaler;
-
-        // If we can get more from the Pearl pool use that.
-        if (_getAmountOut(asset, usdr, _amount) > outWithFee) {
-            _swapFrom(asset, usdr, _amount, outWithFee);
+        uint256 minOut;
+        if (asset == DAI) {
+            // Get the expected amount of `asset` out with the withdrawal fee.
+            minOut = _to9Decimals(_amount - ((_amount * exchange.depositFee()) / MAX_BPS));
+            // If we can get more from the Pearl pool use that.
+            if (_getAmountOut(asset, USDR, _amount) > minOut) {
+                _swapFrom(asset, USDR, _amount, minOut);
+            } else {
+                exchange.swapFromUnderlying(_amount, address(this));
+            }
         } else {
-            exchange.swapFromUnderlying(_amount, address(this));
+            minOut = 0; //@todo: implement min out based on defined slippage
+            _swapFrom(asset, USDR, _amount, minOut);
         }
     }
 
@@ -126,28 +130,37 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
     function _swapToUnderlying(uint256 _amount) internal {
         // Adjust `_amount` down to the correct decimals and make sure
         // Its not more than we have from rounding.
-        _amount = Math.min(
-            _amount / scaler,
-            ERC20(usdr).balanceOf(address(this))
-        );
-
+        _amount = Math.min(_to9Decimals(_amount), ERC20(USDR).balanceOf(address(this)));
+        uint256 minOut;
+        if (asset == DAI) {
         // Get the expected amount of `asset` out with the withdrawal fee.
-        uint256 outWithFee = _getAmountOutWithFee(_amount);
-
-        // If we can get more from the Pearl pool use that.
-        if (_getAmountOut(usdr, asset, _amount) > outWithFee) {
-            _swapFrom(usdr, asset, _amount, outWithFee);
+            minOut = _getAmountOutWithFee(_amount);
+            // If we can get more from the Pearl pool use that.
+            if (_getAmountOut(USDR, asset, _amount) > minOut) {
+                _swapFrom(USDR, asset, _amount, minOut);
+            } else {
+                exchange.swapToUnderlying(_amount, address(this));
+            }
         } else {
-            exchange.swapToUnderlying(_amount, address(this));
+            minOut = 0; //@todo: implement min out based on defined slippage
+            _swapFrom(USDR, asset, _amount, minOut);
         }
     }
 
-    function _getAmountOutWithFee(
-        uint256 _amountIn
-    ) internal view returns (uint256) {
-        return
-            (_amountIn - ((_amountIn * exchange.withdrawalFee()) / MAX_BPS)) *
-            scaler;
+    function _getAmountOutWithFee(uint256 _amountIn) internal returns (uint256) {
+        return _to9Decimals(_amountIn - ((_amountIn * exchange.withdrawalFee()) / MAX_BPS));
+    }
+
+    function _to9Decimals(uint256 amountInAssetDecimals) internal returns (uint256 amountIn9Decimals) {
+        if (decimals > 9) {
+            uint256 divisor = 10 ** (decimals - 9);
+            amountIn9Decimals = amountInAssetDecimals / divisor;
+        } else if (decimals < 9) {
+            uint256 multiplier = 10 ** (9 - decimals);
+            amountIn9Decimals = amountInAssetDecimals * multiplier;
+        } else {
+            amountIn9Decimals = amountInAssetDecimals; // No conversion needed
+        }
     }
 
     /**
@@ -172,29 +185,24 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
      * @return _totalAssets A trusted and accurate account for the total
      * amount of 'asset' the strategy currently holds including idle funds.
      */
-    function _harvestAndReport()
-        internal
-        override
-        returns (uint256 _totalAssets)
-    {
+    function _harvestAndReport() internal override returns (uint256 _totalAssets) {
         require(!paused, "paused");
 
         if (!TokenizedStrategy.isShutdown()) {
             // Swap any loose Tangible if applicable.
             // We can go directly -> USDR.
             // The swapper will do min checks.
-            _swapFrom(TNGBL, usdr, ERC20(TNGBL).balanceOf(address(this)), 0);
+            _swapFrom(TNGBL, USDR, ERC20(TNGBL).balanceOf(address(this)), 0);
         }
 
-        uint256 usdrBalance = ERC20(usdr).balanceOf(address(this));
+        uint256 USDRBalance = ERC20(USDR).balanceOf(address(this));
 
-        _totalAssets =
-            ERC20(asset).balanceOf(address(this)) +
-            // Use the max we could current get out for the usdr balance.
-            Math.max(
-                _getAmountOut(usdr, asset, usdrBalance),
-                _getAmountOutWithFee(usdrBalance)
-            );
+        if (asset == DAI) {
+            // Use the max we could current get out for the USDR balance.
+            _totalAssets = ERC20(asset).balanceOf(address(this)) + Math.max(_getAmountOut(USDR, asset, USDRBalance), _getAmountOutWithFee(USDRBalance));
+        } else {
+            _totalAssets = ERC20(asset).balanceOf(address(this)) + _getAmountOut(USDR, asset, USDRBalance);
+        }
 
         // Health check the amounts since it relys on swap values.
         if (doHealthCheck) {
