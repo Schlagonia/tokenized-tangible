@@ -352,7 +352,8 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
             );
             exchange.swapToUnderlying(_amount, address(this));
         } else {
-            require(_poolIsBalanced(), "imbalanced");
+            // Check the pool health.
+            _checkHealth();
             // Else use the normal flow.
             _swapToUnderlying(_amount);
         }
@@ -395,7 +396,4 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
 
         return diff <= maxImbalance;
     }
-
-    // IGnore
-    function _currentDebt() internal view override returns (uint256) {}
 }
