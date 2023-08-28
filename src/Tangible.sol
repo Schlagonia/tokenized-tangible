@@ -11,9 +11,9 @@ import {IExchange} from "./interfaces/IExchange.sol";
 import {UniswapV3Swapper} from "@periphery/swappers/UniswapV3Swapper.sol";
 
 import {SolidlySwapper} from "@periphery/swappers/SolidlySwapper.sol";
-import {HealthCheck} from "@periphery/HealthCheck/HealthCheck.sol";
+import {BaseHealthCheck} from "@periphery/HealthCheck/BaseHealthCheck.sol";
 
-contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
+contract Tangible is BaseHealthCheck, SolidlySwapper {
     using SafeERC20 for ERC20;
 
     modifier onlyEmergencyAuthorized() {
@@ -53,7 +53,7 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
     constructor(
         address _asset,
         string memory _name
-    ) BaseTokenizedStrategy(_asset, _name) {
+    ) BaseHealthCheck(_asset, _name) {
         ERC20(asset).safeApprove(address(exchange), type(uint256).max);
         ERC20(usdr).safeApprove(address(exchange), type(uint256).max);
 
@@ -64,8 +64,6 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
         // Set the asset => usdr pool as the stable version.
         _setStable(asset, usdr, true);
 
-        // Default to use the healthcheck.
-        doHealthCheck = true;
         // Lower the profit limit to 1% since we use swap values.
         _setProfitLimitRatio(100);
     }
@@ -204,9 +202,7 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
             scaler;
 
         // Health check the amounts since it relys on swap values.
-        if (doHealthCheck) {
-            require(_executeHealthCheck(_totalAssets), "!healthcheck");
-        }
+        _executeHealthCheck(_totalAssets);
     }
 
     /**
@@ -284,25 +280,6 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
         minAmountToSell = _minAmountToSell;
     }
 
-    // Set the max profit the healthcheck should allow
-    function setProfitLimitRatio(
-        uint256 _profitLimitRatio
-    ) external onlyManagement {
-        _setProfitLimitRatio(_profitLimitRatio);
-    }
-
-    // Set the max loss the healthcheck should allow
-    function setLossLimitRatio(
-        uint256 _lossLimitRatio
-    ) external onlyManagement {
-        _setLossLimitRatio(_lossLimitRatio);
-    }
-
-    // Set if the strategy should do the healthcheck.
-    function setDoHealthCheck(bool _doHealthCheck) external onlyManagement {
-        doHealthCheck = _doHealthCheck;
-    }
-
     function setPauseState(bool _state) external onlyEmergencyAuthorized {
         paused = _state;
     }
@@ -354,4 +331,6 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
             _swapToUnderlying(_amount);
         }
     }
+
+    function _currentDebt() internal view override returns (uint256) {}
 }

@@ -10,14 +10,6 @@ interface IStrategyInterface is IStrategy, ISolidlySwapper, IHealthCheck {
 
     function setMinAmountToSell(uint256 _minAmountToSell) external;
 
-    function setProfitLimitRatio(uint256 _profitLimitRatio) external;
-
-    // Set the max loss the healthcheck should allow
-    function setLossLimitRatio(uint256 _lossLimitRatio) external;
-
-    // Set if the strategy should do the healthcheck.
-    function setDoHealthCheck(bool _doHealthCheck) external;
-
     function setDontSwap(bool _dontSwap) external;
 
     function setPauseState(bool _state) external;
