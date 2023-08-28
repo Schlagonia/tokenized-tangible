@@ -37,6 +37,9 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
     // Token that gets airdropped.
     address public constant TNGBL = 0x49e6A20f1BBdfEeC2a8222E052000BbB14EE6007;
 
+    // One in the assets decimals
+    uint256 internal immutable one;
+
     // Difference between ASSET and USDR decimals.
     uint256 internal constant scaler = 1e9;
 
@@ -71,8 +74,9 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
         // Lower the profit limit to 1% since we use swap values.
         _setProfitLimitRatio(100);
 
+        one = 10 ** ERC20(_asset).decimals();
         // Default to a 10 bps for fees and slippage
-        maxImbalance = ((10 ** ERC20(_asset).decimals()) * 10) / MAX_BPS;
+        maxImbalance = (one * 10) / MAX_BPS;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -314,9 +318,7 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
         uint256 _newSlippageBps
     ) external onlyEmergencyAuthorized {
         require(_newSlippageBps <= MAX_BPS, "max slippage");
-        maxImbalance =
-            ((10 ** ERC20(asset).decimals()) * _newSlippageBps) /
-            MAX_BPS;
+        maxImbalance = (one * _newSlippageBps) / MAX_BPS;
     }
 
     /**
@@ -384,13 +386,13 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
         uint256 amount = _getAmountOut(usdr, asset, 1e9);
         // Make sure its within our acceptable range.
         uint256 diff;
-        if (amount < 1e18) {
+        if (amount < one) {
             unchecked {
-                diff = 1e18 - amount;
+                diff = one - amount;
             }
         } else {
             unchecked {
-                diff = amount - 1e18;
+                diff = amount - one;
             }
         }
 

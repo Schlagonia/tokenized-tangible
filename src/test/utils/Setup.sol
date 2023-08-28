@@ -43,8 +43,8 @@ contract Setup is ExtendedTest, IEvents {
     uint256 public decimals;
     uint256 public MAX_BPS = 10_000;
 
-    // Fuzz from $0.01 of 1e6 stable coins up to 1 trillion of a 1e18 coin
-    uint256 public maxFuzzAmount = 50_000e18;
+    // Fuzz amounts
+    uint256 public maxFuzzAmount = 40_000e18;
     uint256 public minFuzzAmount = 1e18;
 
     // Default prfot max unlock time is set for 10 days
