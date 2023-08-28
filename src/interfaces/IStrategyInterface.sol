@@ -15,4 +15,8 @@ interface IStrategyInterface is IStrategy, ISolidlySwapper, IHealthCheck {
     function setPauseState(bool _state) external;
 
     function setEmergencyAdmin(address _emergencyAdmin) external;
+
+    function maxImbalance() external view returns (uint256);
+
+    function setMaxImbalance(uint256) external;
 }

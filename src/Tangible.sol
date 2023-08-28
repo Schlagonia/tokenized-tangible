@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity 0.8.18;
-
+import "forge-std/console.sol";
 import {BaseTokenizedStrategy} from "@tokenized-strategy/BaseTokenizedStrategy.sol";
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -40,6 +40,10 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
     // Difference between ASSET and USDR decimals.
     uint256 internal constant scaler = 1e9;
 
+    // The maximum out of balance our pool quote can be.
+    // In 1 of the asset and assumes asset/usdt are 1 - 1.
+    uint256 public maxImbalance;
+
     // State of strategy.
     bool public paused;
 
@@ -66,6 +70,9 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
 
         // Lower the profit limit to 1% since we use swap values.
         _setProfitLimitRatio(100);
+
+        // Default to a 10 bps for fees and slippage
+        maxImbalance = ((10 ** ERC20(_asset).decimals()) * 10) / MAX_BPS;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -178,6 +185,7 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
     function _harvestAndReport()
         internal
         override
+        checkHealth
         returns (uint256 _totalAssets)
     {
         require(!paused, "paused");
@@ -201,7 +209,7 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
             (ERC20(usdr).balanceOf(address(this)) * rate) /
             scaler;
 
-        // Health check the amounts since it relys on swap values.
+        // Health check the amounts since it relies on swap values.
         _executeHealthCheck(_totalAssets);
     }
 
@@ -229,7 +237,11 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
     function availableDepositLimit(
         address /*_owner*/
     ) public view override returns (uint256) {
+        // Can't deposit while paused.
         if (paused) return 0;
+
+        // Can't deposit while the pool is imbalanced.
+        if (!_poolIsBalanced()) return 0;
 
         return type(uint256).max;
     }
@@ -255,7 +267,11 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
     function availableWithdrawLimit(
         address /*_owner*/
     ) public view override returns (uint256) {
+        // Can't withdraw while paused.
         if (paused) return 0;
+
+        // Can't withdraw while pool is imbalanced.
+        if (!_poolIsBalanced()) return 0;
 
         return type(uint256).max;
     }
@@ -294,6 +310,15 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
         emergencyAdmin = _emergencyAdmin;
     }
 
+    function setMaxImbalance(
+        uint256 _newSlippageBps
+    ) external onlyEmergencyAuthorized {
+        require(_newSlippageBps <= MAX_BPS, "max slippage");
+        maxImbalance =
+            ((10 ** ERC20(asset).decimals()) * _newSlippageBps) /
+            MAX_BPS;
+    }
+
     /**
      * @dev Optional function for a strategist to override that will
      * allow management to manually withdraw deployed funds from the
@@ -327,10 +352,50 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
             );
             exchange.swapToUnderlying(_amount, address(this));
         } else {
+            require(_poolIsBalanced(), "imbalanced");
             // Else use the normal flow.
             _swapToUnderlying(_amount);
         }
     }
 
+    /**
+     * @notice Check important invariants for the strategy.
+     * @dev This deafults to checking totalDebt but can be overriden
+     * to check any important strategy specific invariants.
+     */
+    function _checkHealth() internal view override {
+        require(_poolIsBalanced(), "imbalanced");
+    }
+
+    /** @dev Make sure the asset/USDR pool is not out of balance.
+     *
+     * Is used during the `checkHealth` modifier and the deposit/
+     * withdraw limits to make sure the pool is within some range
+     * and not being manipulated.
+     *
+     * Always check from USDR -> asset since USDR rebases and should
+     * be a bigger amount of the pool.
+     *
+     * @return If the pool is in an acceptable balance.
+     */
+    function _poolIsBalanced() internal view returns (bool) {
+        // Get the current spot rate in asset.
+        uint256 amount = _getAmountOut(usdr, asset, 1e9);
+        // Make sure its within our acceptable range.
+        uint256 diff;
+        if (amount < 1e18) {
+            unchecked {
+                diff = 1e18 - amount;
+            }
+        } else {
+            unchecked {
+                diff = amount - 1e18;
+            }
+        }
+
+        return diff <= maxImbalance;
+    }
+
+    // IGnore
     function _currentDebt() internal view override returns (uint256) {}
 }
