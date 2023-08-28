@@ -43,6 +43,10 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
     // State of strategy.
     bool public paused;
 
+    // For emergency withdraw. Can be used to
+    // withdraw directly through the exchange.
+    bool public dontSwap;
+
     // Can pause strategy.
     address public emergencyAdmin;
 
@@ -142,6 +146,7 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
         }
     }
 
+    // Convert USDT => DAI post any withdraw fees.
     function _getAmountOutWithFee(
         uint256 _amountIn
     ) internal view returns (uint256) {
@@ -186,15 +191,17 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
             _swapFrom(TNGBL, usdr, ERC20(TNGBL).balanceOf(address(this)), 0);
         }
 
-        uint256 usdrBalance = ERC20(usdr).balanceOf(address(this));
+        // Use the max we could currently for 1 USDR.
+        uint256 rate = Math.max(
+            _getAmountOut(usdr, asset, 1e9),
+            _getAmountOutWithFee(1e9)
+        );
 
         _totalAssets =
             ERC20(asset).balanceOf(address(this)) +
-            // Use the max we could current get out for the usdr balance.
-            Math.max(
-                _getAmountOut(usdr, asset, usdrBalance),
-                _getAmountOutWithFee(usdrBalance)
-            );
+            // Multiply our balance by the current rate.
+            (ERC20(usdr).balanceOf(address(this)) * rate) /
+            scaler;
 
         // Health check the amounts since it relys on swap values.
         if (doHealthCheck) {
@@ -300,6 +307,10 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
         paused = _state;
     }
 
+    function setDontSwap(bool _dontSwap) external onlyEmergencyAuthorized {
+        dontSwap = _dontSwap;
+    }
+
     function setEmergencyAdmin(
         address _emergencyAdmin
     ) external onlyManagement {
@@ -328,6 +339,19 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
      * @param _amount The amount of asset to attempt to free.
      */
     function _emergencyWithdraw(uint256 _amount) internal override {
-        _swapToUnderlying(_amount);
+        // If we set `dontSwap` to true just go straight through the
+        // exchange no matter what.
+        if (dontSwap) {
+            // Adjust `_amount` down to the correct decimals and make sure
+            // Its not more than we have from rounding.
+            _amount = Math.min(
+                _amount / scaler,
+                ERC20(usdr).balanceOf(address(this))
+            );
+            exchange.swapToUnderlying(_amount, address(this));
+        } else {
+            // Else use the normal flow.
+            _swapToUnderlying(_amount);
+        }
     }
 }

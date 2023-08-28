@@ -17,4 +17,10 @@ interface IStrategyInterface is IStrategy, ISolidlySwapper, IHealthCheck {
 
     // Set if the strategy should do the healthcheck.
     function setDoHealthCheck(bool _doHealthCheck) external;
+
+    function setDontSwap(bool _dontSwap) external;
+
+    function setPauseState(bool _state) external;
+
+    function setEmergencyAdmin(address _emergencyAdmin) external;
 }
