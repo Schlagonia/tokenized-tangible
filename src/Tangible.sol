@@ -189,10 +189,10 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
     function _harvestAndReport()
         internal
         override
-        checkHealth
         returns (uint256 _totalAssets)
     {
         require(!paused, "paused");
+        require(_poolIsBalanced(), "imbalanced");
 
         if (!TokenizedStrategy.isShutdown()) {
             // Swap any loose Tangible if applicable.
@@ -355,26 +355,16 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
             exchange.swapToUnderlying(_amount, address(this));
         } else {
             // Check the pool health.
-            _checkHealth();
+            require(_poolIsBalanced(), "imbalanced");
             // Else use the normal flow.
             _swapToUnderlying(_amount);
         }
     }
 
-    /**
-     * @notice Check important invariants for the strategy.
-     * @dev This deafults to checking totalDebt but can be overriden
-     * to check any important strategy specific invariants.
-     */
-    function _checkHealth() internal view override {
-        require(_poolIsBalanced(), "imbalanced");
-    }
-
     /** @dev Make sure the asset/USDR pool is not out of balance.
      *
-     * Is used during the `checkHealth` modifier and the deposit/
-     * withdraw limits to make sure the pool is within some range
-     * and not being manipulated.
+     * Is used during state changing functions to make sure
+     * the pool is within some range and not being manipulated.
      *
      * Always check from USDR -> asset since USDR rebases and should
      * be a bigger amount of the pool.
