@@ -345,7 +345,7 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
     function _emergencyWithdraw(uint256 _amount) internal override {
         require(poolIsBalanced(), "imbalanced");
 
-        _swapToUnderlying(Math.min(_amount, TokenizedStrategy.totalAssets()));
+        _swapToUnderlying(Math.min(_amount, maxSwap));
     }
 
     /** @dev Make sure the asset/USDR pool is not out of balance.
