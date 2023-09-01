@@ -68,7 +68,7 @@ contract Setup is ExtendedTest, IEvents {
         decimals = asset.decimals();
         maxFuzzAmount = maxFuzzAmount * (10 ** decimals);
         minFuzzAmount = minFuzzAmount * (10 ** decimals);
-        
+
         // Deploy strategy and set variables
         strategy = IStrategyInterface(setUpStrategy());
 

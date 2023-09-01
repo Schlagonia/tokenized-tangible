@@ -93,7 +93,6 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
     function _swapFromUnderlying(uint256 _amount) internal {
         // We already checked the pool is balanced so pass 0 for minOut.
         _swapFrom(asset, USDR, _amount, 0);
-
     }
 
     /**
@@ -131,10 +130,11 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
 
         // We already checked the pool is balanced so pass 0 for minOut.
         _swapFrom(USDR, asset, _amount, 0);
-
     }
 
-    function _toUSDR(uint256 _amountInAsset) internal view returns (uint256 _amountInUSDR) {
+    function _toUSDR(
+        uint256 _amountInAsset
+    ) internal view returns (uint256 _amountInUSDR) {
         if (decimals > 9) {
             uint256 divisor = 10 ** (decimals - 9);
             _amountInUSDR = _amountInAsset / divisor;
@@ -146,7 +146,9 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
         }
     }
 
-    function _fromUSDR(uint256 _amountInUSDR) internal view returns (uint256 _amountInAsset) {
+    function _fromUSDR(
+        uint256 _amountInUSDR
+    ) internal view returns (uint256 _amountInAsset) {
         if (decimals < 9) {
             uint256 divisor = 10 ** (9 - decimals);
             _amountInAsset = _amountInUSDR / divisor;
@@ -332,12 +334,7 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
     function _emergencyWithdraw(uint256 _amount) internal override {
         require(_poolIsBalanced(), "imbalanced");
 
-        _swapToUnderlying(
-            Math.min(
-                _amount,
-                TokenizedStrategy.totalAssets()
-            )
-        );
+        _swapToUnderlying(Math.min(_amount, TokenizedStrategy.totalAssets()));
     }
 
     /** @dev Make sure the asset/USDR pool is not out of balance.
