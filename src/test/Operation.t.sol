@@ -76,6 +76,10 @@ contract OperationTest is Setup {
         uint256 toAirdrop = (_amount * _profitFactor) / MAX_BPS;
         airdrop(asset, address(strategy), toAirdrop);
 
+        // turn off healthcheck to allow for profit.
+        vm.prank(management);
+        strategy.setProfitLimitRatio(_profitFactor);
+
         // Report profit
         vm.prank(keeper);
         (uint256 profit, uint256 loss) = strategy.report();
@@ -97,12 +101,8 @@ contract OperationTest is Setup {
         );
     }
 
-    function test_profitableReport_withRewards(
-        uint256 _amount,
-        uint16 _profitFactor
-    ) public {
+    function test_profitableReport_withRewards(uint256 _amount) public {
         vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount);
-        _profitFactor = uint16(bound(uint256(_profitFactor), 10, MAX_BPS));
 
         // Deposit into strategy
         mintAndDepositIntoStrategy(strategy, user, _amount);
@@ -114,6 +114,10 @@ contract OperationTest is Setup {
 
         uint256 toAirdrop = 10e18;
         airdrop(ERC20(TNGBL), address(strategy), toAirdrop);
+
+        // Turn off healthcheck for profits.
+        vm.prank(management);
+        strategy.setDoHealthCheck(false);
 
         // Report profit
         vm.prank(keeper);
@@ -160,6 +164,10 @@ contract OperationTest is Setup {
         // TODO: implement logic to simulate earning interest.
         uint256 toAirdrop = (_amount * _profitFactor) / MAX_BPS;
         airdrop(asset, address(strategy), toAirdrop);
+
+        // Increase healthcheck to allow for profit.
+        vm.prank(management);
+        strategy.setProfitLimitRatio(_profitFactor);
 
         // Report profit
         vm.prank(keeper);
@@ -210,6 +218,10 @@ contract OperationTest is Setup {
         skip(1 days);
 
         assertTrue(!strategy.tendTrigger());
+
+        // turn off healthcheck to allow for loss.
+        vm.prank(management);
+        strategy.setDoHealthCheck(false);
 
         vm.prank(keeper);
         strategy.report();

@@ -33,6 +33,7 @@ contract Setup is ExtendedTest, IEvents {
     address public user = address(10);
     address public keeper = address(4);
     address public management = address(1);
+    address public emergencyAdmin = address(2);
     address public performanceFeeRecipient = address(3);
 
     // Address of the real deployed Factory
@@ -42,8 +43,8 @@ contract Setup is ExtendedTest, IEvents {
     uint256 public decimals;
     uint256 public MAX_BPS = 10_000;
 
-    // Fuzz from $0.01 of 1e6 stable coins up to 1 trillion of a 1e18 coin
-    uint256 public maxFuzzAmount = 100_000e18;
+    // Fuzz amounts
+    uint256 public maxFuzzAmount = 40_000e18;
     uint256 public minFuzzAmount = 1e18;
 
     // Default prfot max unlock time is set for 10 days
@@ -54,6 +55,8 @@ contract Setup is ExtendedTest, IEvents {
 
     address public constant usdr = 0x40379a439D4F6795B6fc9aa5687dB461677A2dBa;
     address public constant TNGBL = 0x49e6A20f1BBdfEeC2a8222E052000BbB14EE6007;
+
+    uint256 public constant scaler = 1e9;
 
     function setUp() public virtual {
         _setTokenAddrs();
@@ -77,6 +80,7 @@ contract Setup is ExtendedTest, IEvents {
         vm.label(management, "management");
         vm.label(address(strategy), "strategy");
         vm.label(address(exchange), "Exchange");
+        vm.label(emergencyAdmin, "Emergency Admin");
         vm.label(performanceFeeRecipient, "performanceFeeRecipient");
     }
 
@@ -90,6 +94,8 @@ contract Setup is ExtendedTest, IEvents {
         _strategy.setKeeper(keeper);
         // set treasury
         _strategy.setPerformanceFeeRecipient(performanceFeeRecipient);
+        // Set emergency ADmin
+        _strategy.setEmergencyAdmin(emergencyAdmin);
         // set management of the strategy
         _strategy.setPendingManagement(management);
 

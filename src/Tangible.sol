@@ -11,10 +11,23 @@ import {IExchange} from "./interfaces/IExchange.sol";
 import {UniswapV3Swapper} from "@periphery/swappers/UniswapV3Swapper.sol";
 
 import {SolidlySwapper} from "@periphery/swappers/SolidlySwapper.sol";
-import {HealthCheck} from "@periphery/HealthCheck/HealthCheck.sol";
+import {BaseHealthCheck} from "@periphery/HealthCheck/BaseHealthCheck.sol";
 
-contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
+contract Tangible is BaseHealthCheck, SolidlySwapper {
     using SafeERC20 for ERC20;
+
+    modifier onlyEmergencyAuthorized() {
+        _onlyEmergencyAuthorized();
+        _;
+    }
+
+    function _onlyEmergencyAuthorized() internal view {
+        require(
+            msg.sender == emergencyAdmin ||
+                msg.sender == TokenizedStrategy.management(),
+            "!emergency authorized"
+        );
+    }
 
     IExchange public constant exchange =
         IExchange(0x195F7B233947d51F4C3b756ad41a5Ddb34cEBCe0);
@@ -24,13 +37,30 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
     // Token that gets airdropped.
     address public constant TNGBL = 0x49e6A20f1BBdfEeC2a8222E052000BbB14EE6007;
 
+    // One in the assets decimals
+    uint256 internal immutable one;
+
     // Difference between ASSET and USDR decimals.
     uint256 internal constant scaler = 1e9;
+
+    // The maximum out of balance our pool quote can be.
+    // In 1 of the asset and assumes asset/usdt are 1 - 1.
+    uint256 public maxImbalance;
+
+    // State of strategy.
+    bool public paused;
+
+    // For emergency withdraw. Can be used to
+    // withdraw directly through the exchange.
+    bool public dontSwap;
+
+    // Can pause strategy.
+    address public emergencyAdmin;
 
     constructor(
         address _asset,
         string memory _name
-    ) BaseTokenizedStrategy(_asset, _name) {
+    ) BaseHealthCheck(_asset, _name) {
         ERC20(asset).safeApprove(address(exchange), type(uint256).max);
         ERC20(usdr).safeApprove(address(exchange), type(uint256).max);
 
@@ -40,6 +70,13 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
         router = 0x06374F57991CDc836E5A318569A910FE6456D230;
         // Set the asset => usdr pool as the stable version.
         _setStable(asset, usdr, true);
+
+        // Lower the profit limit to 1% since we use swap values.
+        _setProfitLimitRatio(100);
+
+        one = 10 ** ERC20(_asset).decimals();
+        // Default to a 10 bps for fees and slippage
+        maxImbalance = (one * 10) / MAX_BPS;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -108,8 +145,7 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
         );
 
         // Get the expected amount of `asset` out with the withdrawal fee.
-        uint256 outWithFee = (_amount -
-            ((_amount * exchange.withdrawalFee()) / MAX_BPS)) * scaler;
+        uint256 outWithFee = _getAmountOutWithFee(_amount);
 
         // If we can get more from the Pearl pool use that.
         if (_getAmountOut(usdr, asset, _amount) > outWithFee) {
@@ -117,6 +153,15 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
         } else {
             exchange.swapToUnderlying(_amount, address(this));
         }
+    }
+
+    // Convert USDT => DAI post any withdraw fees.
+    function _getAmountOutWithFee(
+        uint256 _amountIn
+    ) internal view returns (uint256) {
+        return
+            (_amountIn - ((_amountIn * exchange.withdrawalFee()) / MAX_BPS)) *
+            scaler;
     }
 
     /**
@@ -146,6 +191,9 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
         override
         returns (uint256 _totalAssets)
     {
+        require(!paused, "paused");
+        require(_poolIsBalanced(), "imbalanced");
+
         if (!TokenizedStrategy.isShutdown()) {
             // Swap any loose Tangible if applicable.
             // We can go directly -> USDR.
@@ -153,15 +201,83 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
             _swapFrom(TNGBL, usdr, ERC20(TNGBL).balanceOf(address(this)), 0);
         }
 
+        // Use the max we could currently for 1 USDR.
+        uint256 rate = Math.max(
+            _getAmountOut(usdr, asset, 1e9),
+            _getAmountOutWithFee(1e9)
+        );
+
         _totalAssets =
             ERC20(asset).balanceOf(address(this)) +
-            // Use the max we could current get out for the usdr balance.
-            _getAmountOut(usdr, asset, ERC20(usdr).balanceOf(address(this)));
+            // Multiply our balance by the current rate.
+            (ERC20(usdr).balanceOf(address(this)) * rate) /
+            scaler;
 
-        // Health check the amounts since it relys on swap values.
-        if (doHealthCheck) {
-            require(_executeHealthCheck(_totalAssets), "!healthcheck");
-        }
+        // Health check the amounts since it relies on swap values.
+        _executeHealthCheck(_totalAssets);
+    }
+
+    /**
+     * @notice Gets the max amount of `asset` that an address can deposit.
+     * @dev Defaults to an unlimited amount for any address. But can
+     * be overriden by strategists.
+     *
+     * This function will be called before any deposit or mints to enforce
+     * any limits desired by the strategist. This can be used for either a
+     * traditional deposit limit or for implementing a whitelist etc.
+     *
+     *   EX:
+     *      if(isAllowed[_owner]) return super.availableDepositLimit(_owner);
+     *
+     * This does not need to take into account any conversion rates
+     * from shares to assets. But should know that any non max uint256
+     * amounts may be converted to shares. So it is recommended to keep
+     * custom amounts low enough as not to cause overflow when multiplied
+     * by `totalSupply`.
+     *
+     * @param . The address that is depositing into the strategy.
+     * @return . The available amount the `_owner` can deposit in terms of `asset`
+     */
+    function availableDepositLimit(
+        address /*_owner*/
+    ) public view override returns (uint256) {
+        // Can't deposit while paused.
+        if (paused) return 0;
+
+        // Can't deposit while the pool is imbalanced.
+        if (!_poolIsBalanced()) return 0;
+
+        return type(uint256).max;
+    }
+
+    /**
+     * @notice Gets the max amount of `asset` that can be withdrawn.
+     * @dev Defaults to an unlimited amount for any address. But can
+     * be overriden by strategists.
+     *
+     * This function will be called before any withdraw or redeem to enforce
+     * any limits desired by the strategist. This can be used for illiquid
+     * or sandwichable strategies. It should never be lower than `totalIdle`.
+     *
+     *   EX:
+     *       return TokenIzedStrategy.totalIdle();
+     *
+     * This does not need to take into account the `_owner`'s share balance
+     * or conversion rates from shares to assets.
+     *
+     * @param . The address that is withdrawing from the strategy.
+     * @return . The available amount that can be withdrawn in terms of `asset`
+     */
+    function availableWithdrawLimit(
+        address /*_owner*/
+    ) public view override returns (uint256) {
+        // Can't withdraw while paused.
+        if (paused) return 0;
+
+        // Can't withdraw while pool is imbalanced.
+        if (!_poolIsBalanced()) return 0;
+
+        return type(uint256).max;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -184,23 +300,25 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
         minAmountToSell = _minAmountToSell;
     }
 
-    // Set the max profit the healthcheck should allow
-    function setProfitLimitRatio(
-        uint256 _profitLimitRatio
-    ) external onlyManagement {
-        _setProfitLimitRatio(_profitLimitRatio);
+    function setPauseState(bool _state) external onlyEmergencyAuthorized {
+        paused = _state;
     }
 
-    // Set the max loss the healthcheck should allow
-    function setLossLimitRatio(
-        uint256 _lossLimitRatio
-    ) external onlyManagement {
-        _setLossLimitRatio(_lossLimitRatio);
+    function setDontSwap(bool _dontSwap) external onlyEmergencyAuthorized {
+        dontSwap = _dontSwap;
     }
 
-    // Set if the strategy should do the healthcheck.
-    function setDoHealthCheck(bool _doHealthCheck) external onlyManagement {
-        doHealthCheck = _doHealthCheck;
+    function setEmergencyAdmin(
+        address _emergencyAdmin
+    ) external onlyManagement {
+        emergencyAdmin = _emergencyAdmin;
+    }
+
+    function setMaxImbalance(
+        uint256 _newSlippageBps
+    ) external onlyEmergencyAuthorized {
+        require(_newSlippageBps <= MAX_BPS, "max slippage");
+        maxImbalance = (one * _newSlippageBps) / MAX_BPS;
     }
 
     /**
@@ -225,6 +343,49 @@ contract Tangible is BaseTokenizedStrategy, SolidlySwapper, HealthCheck {
      * @param _amount The amount of asset to attempt to free.
      */
     function _emergencyWithdraw(uint256 _amount) internal override {
-        _swapToUnderlying(_amount);
+        // If we set `dontSwap` to true just go straight through the
+        // exchange no matter what.
+        if (dontSwap) {
+            // Adjust `_amount` down to the correct decimals and make sure
+            // Its not more than we have from rounding.
+            _amount = Math.min(
+                _amount / scaler,
+                ERC20(usdr).balanceOf(address(this))
+            );
+            exchange.swapToUnderlying(_amount, address(this));
+        } else {
+            // Check the pool health.
+            require(_poolIsBalanced(), "imbalanced");
+            // Else use the normal flow.
+            _swapToUnderlying(_amount);
+        }
+    }
+
+    /** @dev Make sure the asset/USDR pool is not out of balance.
+     *
+     * Is used during state changing functions to make sure
+     * the pool is within some range and not being manipulated.
+     *
+     * Always check from USDR -> asset since USDR rebases and should
+     * be a bigger amount of the pool.
+     *
+     * @return If the pool is in an acceptable balance.
+     */
+    function _poolIsBalanced() internal view returns (bool) {
+        // Get the current spot rate in asset.
+        uint256 amount = _getAmountOut(usdr, asset, 1e9);
+        // Make sure its within our acceptable range.
+        uint256 diff;
+        if (amount < one) {
+            unchecked {
+                diff = one - amount;
+            }
+        } else {
+            unchecked {
+                diff = amount - one;
+            }
+        }
+
+        return diff <= maxImbalance;
     }
 }
