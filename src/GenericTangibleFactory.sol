@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity 0.8.18;
 
-import {Tangible} from "./Tangible.sol";
+import {GenericTangible} from "./GenericTangible.sol";
 
 interface IStrategy {
     function setPerformanceFeeRecipient(address) external;
@@ -11,8 +11,8 @@ interface IStrategy {
     function setPendingManagement(address) external;
 }
 
-contract TangibleFactory {
-    event NewTangible(address indexed strategy, address indexed asset);
+contract GenericTangibleFactory {
+    event NewGenericTangible(address indexed strategy, address indexed asset);
 
     address public management;
     address public perfomanceFeeRecipient;
@@ -35,13 +35,15 @@ contract TangibleFactory {
      * @param _name The name for the lender to use.
      * @return . The address of the new strategy.
      */
-    function newTangible(
+    function newGenericTangible(
         address _asset,
         string memory _name
     ) external returns (address) {
         // We need to use the custom interface with the
         // tokenized strategies available setters.
-        IStrategy newStrategy = IStrategy(address(new Tangible(_asset, _name)));
+        IStrategy newStrategy = IStrategy(
+            address(new GenericTangible(_asset, _name))
+        );
 
         newStrategy.setPerformanceFeeRecipient(perfomanceFeeRecipient);
 
@@ -49,7 +51,7 @@ contract TangibleFactory {
 
         newStrategy.setPendingManagement(management);
 
-        emit NewTangible(address(newStrategy), _asset);
+        emit NewGenericTangible(address(newStrategy), _asset);
         return address(newStrategy);
     }
 

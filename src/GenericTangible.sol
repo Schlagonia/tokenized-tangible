@@ -10,7 +10,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {SolidlySwapper} from "@periphery/swappers/SolidlySwapper.sol";
 import {BaseHealthCheck} from "@periphery/HealthCheck/BaseHealthCheck.sol";
 
-contract Tangible is BaseHealthCheck, SolidlySwapper {
+contract GenericTangible is BaseHealthCheck, SolidlySwapper {
     using SafeERC20 for ERC20;
 
     modifier onlyEmergencyAuthorized() {
