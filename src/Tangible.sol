@@ -253,7 +253,7 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
         if (!poolIsBalanced()) return 0;
 
         return maxSwap;
-    }   
+    }
 
     /**
      * @notice Gets the max amount of `asset` that can be withdrawn.
@@ -284,7 +284,6 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
 
         return TokenizedStrategy.totalIdle() + maxSwap;
     }
-
 
     /*//////////////////////////////////////////////////////////////
                         PERIPHERY SETTERS
