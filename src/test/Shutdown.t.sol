@@ -95,8 +95,8 @@ contract ShutdownTest is Setup {
 
         checkStrategyTotals(strategy, _amount, _amount, 0);
 
-        assertEq(strategy.availableDepositLimit(user), type(uint256).max);
-        assertEq(strategy.availableWithdrawLimit(user), type(uint256).max);
+        assertEq(strategy.availableDepositLimit(user), strategy.maxSwap());
+        assertEq(strategy.availableWithdrawLimit(user), strategy.maxSwap());
 
         vm.prank(emergencyAdmin);
         strategy.setPauseState(true);
@@ -122,8 +122,8 @@ contract ShutdownTest is Setup {
         vm.prank(emergencyAdmin);
         strategy.setPauseState(false);
 
-        assertEq(strategy.availableDepositLimit(user), type(uint256).max);
-        assertEq(strategy.availableWithdrawLimit(user), type(uint256).max);
+        assertEq(strategy.availableDepositLimit(user), strategy.maxSwap());
+        assertEq(strategy.availableWithdrawLimit(user), strategy.maxSwap());
 
         uint256 balanceBefore = asset.balanceOf(user);
 
