@@ -8,7 +8,6 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {IExchange} from "./interfaces/IExchange.sol";
-import {UniswapV3Swapper} from "@periphery/swappers/UniswapV3Swapper.sol";
 
 import {SolidlySwapper} from "@periphery/swappers/SolidlySwapper.sol";
 import {BaseHealthCheck} from "@periphery/HealthCheck/BaseHealthCheck.sol";
@@ -50,6 +49,10 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
     // State of strategy.
     bool public paused;
 
+    // Max to swap at once for deposit/withdraw limits based
+    // on the current liquidity of the pool.
+    uint256 public maxSwap;
+
     // For emergency withdraw. Can be used to
     // withdraw directly through the exchange.
     bool public dontSwap;
@@ -77,6 +80,8 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
         one = 10 ** ERC20(_asset).decimals();
         // Default to a 10 bps for fees and slippage
         maxImbalance = (one * 10) / MAX_BPS;
+
+        maxSwap = 50_000 * one;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -192,7 +197,7 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
         returns (uint256 _totalAssets)
     {
         require(!paused, "paused");
-        require(_poolIsBalanced(), "imbalanced");
+        require(poolIsBalanced(), "imbalanced");
 
         if (!TokenizedStrategy.isShutdown()) {
             // Swap any loose Tangible if applicable.
@@ -245,10 +250,10 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
         if (paused) return 0;
 
         // Can't deposit while the pool is imbalanced.
-        if (!_poolIsBalanced()) return 0;
+        if (!poolIsBalanced()) return 0;
 
-        return type(uint256).max;
-    }
+        return maxSwap;
+    }   
 
     /**
      * @notice Gets the max amount of `asset` that can be withdrawn.
@@ -275,10 +280,11 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
         if (paused) return 0;
 
         // Can't withdraw while pool is imbalanced.
-        if (!_poolIsBalanced()) return 0;
+        if (!poolIsBalanced()) return 0;
 
-        return type(uint256).max;
+        return TokenizedStrategy.totalIdle() + maxSwap;
     }
+
 
     /*//////////////////////////////////////////////////////////////
                         PERIPHERY SETTERS
@@ -321,6 +327,10 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
         maxImbalance = (one * _newSlippageBps) / MAX_BPS;
     }
 
+    function setMaxSwap(uint256 _maxSwap) external onlyManagement {
+        maxSwap = _maxSwap;
+    }
+
     /**
      * @dev Optional function for a strategist to override that will
      * allow management to manually withdraw deployed funds from the
@@ -355,7 +365,11 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
             exchange.swapToUnderlying(_amount, address(this));
         } else {
             // Check the pool health.
-            require(_poolIsBalanced(), "imbalanced");
+            require(poolIsBalanced(), "imbalanced");
+
+            // Enforce the max swap
+            _amount = Math.min(_amount, maxSwap);
+
             // Else use the normal flow.
             _swapToUnderlying(_amount);
         }
@@ -371,7 +385,7 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
      *
      * @return If the pool is in an acceptable balance.
      */
-    function _poolIsBalanced() internal view returns (bool) {
+    function poolIsBalanced() internal view returns (bool) {
         // Get the current spot rate in asset.
         uint256 amount = _getAmountOut(USDR, asset, 1e9);
         // Make sure its within our acceptable range.

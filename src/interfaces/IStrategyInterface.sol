@@ -18,4 +18,8 @@ interface IStrategyInterface is IBaseHealthCheck, ISolidlySwapper {
     function maxImbalance() external view returns (uint256);
 
     function setMaxImbalance(uint256) external;
+
+    function maxSwap() external view returns (uint256);
+
+    function setMaxSwap(uint256 _maxSwap) external;
 }
