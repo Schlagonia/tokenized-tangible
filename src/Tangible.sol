@@ -7,9 +7,6 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import {IExchange} from "./interfaces/IExchange.sol";
-import {UniswapV3Swapper} from "@periphery/swappers/UniswapV3Swapper.sol";
-
 import {SolidlySwapper} from "@periphery/swappers/SolidlySwapper.sol";
 import {BaseHealthCheck} from "@periphery/HealthCheck/BaseHealthCheck.sol";
 
@@ -29,19 +26,16 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
         );
     }
 
-    IExchange public constant exchange =
-        IExchange(0x195F7B233947d51F4C3b756ad41a5Ddb34cEBCe0);
-
-    // Token to swap DAI to
-    address public constant usdr = 0x40379a439D4F6795B6fc9aa5687dB461677A2dBa;
+    // Token to swap asset to
+    address public constant USDR = 0x40379a439D4F6795B6fc9aa5687dB461677A2dBa;
     // Token that gets airdropped.
     address public constant TNGBL = 0x49e6A20f1BBdfEeC2a8222E052000BbB14EE6007;
 
     // One in the assets decimals
     uint256 internal immutable one;
 
-    // Difference between ASSET and USDR decimals.
-    uint256 internal constant scaler = 1e9;
+    // Decimals of asset.
+    uint256 internal immutable decimals;
 
     // The maximum out of balance our pool quote can be.
     // In 1 of the asset and assumes asset/usdt are 1 - 1.
@@ -50,10 +44,6 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
     // State of strategy.
     bool public paused;
 
-    // For emergency withdraw. Can be used to
-    // withdraw directly through the exchange.
-    bool public dontSwap;
-
     // Can pause strategy.
     address public emergencyAdmin;
 
@@ -61,20 +51,22 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
         address _asset,
         string memory _name
     ) BaseHealthCheck(_asset, _name) {
-        ERC20(asset).safeApprove(address(exchange), type(uint256).max);
-        ERC20(usdr).safeApprove(address(exchange), type(uint256).max);
-
-        // Set uni swapper values
-        // Set DAI as the base so can go straight from TNGBL => DAI
-        base = usdr;
+        // Set swapper values for Pearl
+        // Set USDR as the base so can go straight from TNGBL => USDR
+        base = USDR;
         router = 0x06374F57991CDc836E5A318569A910FE6456D230;
-        // Set the asset => usdr pool as the stable version.
-        _setStable(asset, usdr, true);
+        // Set the asset => USDR pool as the stable version.
+        _setStable(asset, USDR, true);
+
+        ERC20(asset).safeApprove(router, type(uint256).max);
+        ERC20(USDR).safeApprove(router, type(uint256).max);
 
         // Lower the profit limit to 1% since we use swap values.
         _setProfitLimitRatio(100);
 
-        one = 10 ** ERC20(_asset).decimals();
+        decimals = ERC20(_asset).decimals();
+        one = 10 ** decimals;
+
         // Default to a 10 bps for fees and slippage
         maxImbalance = (one * 10) / MAX_BPS;
     }
@@ -99,16 +91,9 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
     }
 
     function _swapFromUnderlying(uint256 _amount) internal {
-        // Get the expected amount of `asset` out with the withdrawal fee.
-        uint256 outWithFee = (_amount -
-            ((_amount * exchange.depositFee()) / MAX_BPS)) / scaler;
+        // We already checked the pool is balanced so pass 0 for minOut.
+        _swapFrom(asset, USDR, _amount, 0);
 
-        // If we can get more from the Pearl pool use that.
-        if (_getAmountOut(asset, usdr, _amount) > outWithFee) {
-            _swapFrom(asset, usdr, _amount, outWithFee);
-        } else {
-            exchange.swapFromUnderlying(_amount, address(this));
-        }
     }
 
     /**
@@ -140,28 +125,37 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
         // Adjust `_amount` down to the correct decimals and make sure
         // Its not more than we have from rounding.
         _amount = Math.min(
-            _amount / scaler,
-            ERC20(usdr).balanceOf(address(this))
+            _toUSDR(_amount),
+            ERC20(USDR).balanceOf(address(this))
         );
 
-        // Get the expected amount of `asset` out with the withdrawal fee.
-        uint256 outWithFee = _getAmountOutWithFee(_amount);
+        // We already checked the pool is balanced so pass 0 for minOut.
+        _swapFrom(USDR, asset, _amount, 0);
 
-        // If we can get more from the Pearl pool use that.
-        if (_getAmountOut(usdr, asset, _amount) > outWithFee) {
-            _swapFrom(usdr, asset, _amount, outWithFee);
+    }
+
+    function _toUSDR(uint256 _amountInAsset) internal view returns (uint256 _amountInUSDR) {
+        if (decimals > 9) {
+            uint256 divisor = 10 ** (decimals - 9);
+            _amountInUSDR = _amountInAsset / divisor;
+        } else if (decimals < 9) {
+            uint256 multiplier = 10 ** (9 - decimals);
+            _amountInUSDR = _amountInAsset * multiplier;
         } else {
-            exchange.swapToUnderlying(_amount, address(this));
+            _amountInUSDR = _amountInAsset; // No conversion needed
         }
     }
 
-    // Convert USDT => DAI post any withdraw fees.
-    function _getAmountOutWithFee(
-        uint256 _amountIn
-    ) internal view returns (uint256) {
-        return
-            (_amountIn - ((_amountIn * exchange.withdrawalFee()) / MAX_BPS)) *
-            scaler;
+    function _fromUSDR(uint256 _amountInUSDR) internal view returns (uint256 _amountInAsset) {
+        if (decimals < 9) {
+            uint256 divisor = 10 ** (9 - decimals);
+            _amountInAsset = _amountInUSDR / divisor;
+        } else if (decimals > 9) {
+            uint256 multiplier = 10 ** (decimals - 9);
+            _amountInAsset = _amountInUSDR * multiplier;
+        } else {
+            _amountInAsset = _amountInUSDR; // No conversion needed
+        }
     }
 
     /**
@@ -198,20 +192,17 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
             // Swap any loose Tangible if applicable.
             // We can go directly -> USDR.
             // The swapper will do min checks.
-            _swapFrom(TNGBL, usdr, ERC20(TNGBL).balanceOf(address(this)), 0);
+            _swapFrom(TNGBL, USDR, ERC20(TNGBL).balanceOf(address(this)), 0);
         }
 
         // Use the max we could currently for 1 USDR.
-        uint256 rate = Math.max(
-            _getAmountOut(usdr, asset, 1e9),
-            _getAmountOutWithFee(1e9)
-        );
+        uint256 rate = _getAmountOut(USDR, asset, 1e9);
 
         _totalAssets =
             ERC20(asset).balanceOf(address(this)) +
             // Multiply our balance by the current rate.
-            (ERC20(usdr).balanceOf(address(this)) * rate) /
-            scaler;
+            (_fromUSDR(ERC20(USDR).balanceOf(address(this))) * rate) /
+            one;
 
         // Health check the amounts since it relies on swap values.
         _executeHealthCheck(_totalAssets);
@@ -304,10 +295,6 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
         paused = _state;
     }
 
-    function setDontSwap(bool _dontSwap) external onlyEmergencyAuthorized {
-        dontSwap = _dontSwap;
-    }
-
     function setEmergencyAdmin(
         address _emergencyAdmin
     ) external onlyManagement {
@@ -343,22 +330,14 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
      * @param _amount The amount of asset to attempt to free.
      */
     function _emergencyWithdraw(uint256 _amount) internal override {
-        // If we set `dontSwap` to true just go straight through the
-        // exchange no matter what.
-        if (dontSwap) {
-            // Adjust `_amount` down to the correct decimals and make sure
-            // Its not more than we have from rounding.
-            _amount = Math.min(
-                _amount / scaler,
-                ERC20(usdr).balanceOf(address(this))
-            );
-            exchange.swapToUnderlying(_amount, address(this));
-        } else {
-            // Check the pool health.
-            require(_poolIsBalanced(), "imbalanced");
-            // Else use the normal flow.
-            _swapToUnderlying(_amount);
-        }
+        require(_poolIsBalanced(), "imbalanced");
+
+        _swapToUnderlying(
+            Math.min(
+                _amount,
+                TokenizedStrategy.totalAssets()
+            )
+        );
     }
 
     /** @dev Make sure the asset/USDR pool is not out of balance.
@@ -373,7 +352,7 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
      */
     function _poolIsBalanced() internal view returns (bool) {
         // Get the current spot rate in asset.
-        uint256 amount = _getAmountOut(usdr, asset, 1e9);
+        uint256 amount = _getAmountOut(USDR, asset, 1e9);
         // Make sure its within our acceptable range.
         uint256 diff;
         if (amount < one) {

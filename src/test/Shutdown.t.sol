@@ -87,55 +87,6 @@ contract ShutdownTest is Setup {
         );
     }
 
-    function test_shudown_emergencyWithdraw_dontSwap(uint256 _amount) public {
-        vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount);
-
-        // Deposit into strategy
-        mintAndDepositIntoStrategy(strategy, user, _amount);
-
-        checkStrategyTotals(strategy, _amount, _amount, 0);
-
-        // Earn Interest
-        skip(1 days);
-
-        // Shutdown the strategy
-        vm.prank(management);
-        strategy.shutdownStrategy();
-
-        checkStrategyTotals(strategy, _amount, _amount, 0);
-
-        vm.prank(emergencyAdmin);
-        strategy.setDontSwap(true);
-
-        vm.prank(management);
-        strategy.emergencyWithdraw(type(uint256).max);
-
-        uint256 balance = asset.balanceOf(address(strategy));
-
-        checkStrategyTotals(strategy, _amount, _amount - balance, balance);
-
-        // Report the loss from the withdraw fee
-        vm.prank(management);
-        strategy.setDoHealthCheck(false);
-
-        vm.prank(management);
-        (, uint256 loss) = strategy.report();
-
-        assertEq(loss, _amount - balance);
-
-        // Withdraw all funds
-        vm.prank(user);
-        strategy.redeem(_amount, user, user);
-
-        checkStrategyTotals(strategy, 0, 0, 0);
-
-        assertGe(
-            asset.balanceOf(user),
-            (_amount * (MAX_BPS - exchange.withdrawalFee() - 1)) / MAX_BPS,
-            "!final balance"
-        );
-    }
-
     function test_pause(uint256 _amount) public {
         vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount);
 

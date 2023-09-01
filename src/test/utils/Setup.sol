@@ -44,8 +44,8 @@ contract Setup is ExtendedTest, IEvents {
     uint256 public MAX_BPS = 10_000;
 
     // Fuzz amounts
-    uint256 public maxFuzzAmount = 40_000e18;
-    uint256 public minFuzzAmount = 1e18;
+    uint256 public maxFuzzAmount = 40_000;
+    uint256 public minFuzzAmount = 1;
 
     // Default prfot max unlock time is set for 10 days
     uint256 public profitMaxUnlockTime = 10 days;
@@ -62,11 +62,13 @@ contract Setup is ExtendedTest, IEvents {
         _setTokenAddrs();
 
         // Set asset
-        asset = ERC20(0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063);
+        asset = ERC20(0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174);
 
         // Set decimals
         decimals = asset.decimals();
-
+        maxFuzzAmount = maxFuzzAmount * (10 ** decimals);
+        minFuzzAmount = minFuzzAmount * (10 ** decimals);
+        
         // Deploy strategy and set variables
         strategy = IStrategyInterface(setUpStrategy());
 
