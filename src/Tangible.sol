@@ -33,7 +33,7 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
         IExchange(0x195F7B233947d51F4C3b756ad41a5Ddb34cEBCe0);
 
     // Token to swap DAI to
-    address public constant usdr = 0x40379a439D4F6795B6fc9aa5687dB461677A2dBa;
+    address public constant USDR = 0x40379a439D4F6795B6fc9aa5687dB461677A2dBa;
     // Token that gets airdropped.
     address public constant TNGBL = 0x49e6A20f1BBdfEeC2a8222E052000BbB14EE6007;
 
@@ -62,14 +62,14 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
         string memory _name
     ) BaseHealthCheck(_asset, _name) {
         ERC20(asset).safeApprove(address(exchange), type(uint256).max);
-        ERC20(usdr).safeApprove(address(exchange), type(uint256).max);
+        ERC20(USDR).safeApprove(address(exchange), type(uint256).max);
 
-        // Set uni swapper values
-        // Set DAI as the base so can go straight from TNGBL => DAI
-        base = usdr;
+        // Set pearl swapper values
+        // Set USDR as the base so can go straight from TNGBL => USDR
+        base = USDR;
         router = 0x06374F57991CDc836E5A318569A910FE6456D230;
-        // Set the asset => usdr pool as the stable version.
-        _setStable(asset, usdr, true);
+        // Set the asset => USDR pool as the stable version.
+        _setStable(asset, USDR, true);
 
         // Lower the profit limit to 1% since we use swap values.
         _setProfitLimitRatio(100);
@@ -104,8 +104,8 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
             ((_amount * exchange.depositFee()) / MAX_BPS)) / scaler;
 
         // If we can get more from the Pearl pool use that.
-        if (_getAmountOut(asset, usdr, _amount) > outWithFee) {
-            _swapFrom(asset, usdr, _amount, outWithFee);
+        if (_getAmountOut(asset, USDR, _amount) > outWithFee) {
+            _swapFrom(asset, USDR, _amount, outWithFee);
         } else {
             exchange.swapFromUnderlying(_amount, address(this));
         }
@@ -141,15 +141,15 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
         // Its not more than we have from rounding.
         _amount = Math.min(
             _amount / scaler,
-            ERC20(usdr).balanceOf(address(this))
+            ERC20(USDR).balanceOf(address(this))
         );
 
         // Get the expected amount of `asset` out with the withdrawal fee.
         uint256 outWithFee = _getAmountOutWithFee(_amount);
 
         // If we can get more from the Pearl pool use that.
-        if (_getAmountOut(usdr, asset, _amount) > outWithFee) {
-            _swapFrom(usdr, asset, _amount, outWithFee);
+        if (_getAmountOut(USDR, asset, _amount) > outWithFee) {
+            _swapFrom(USDR, asset, _amount, outWithFee);
         } else {
             exchange.swapToUnderlying(_amount, address(this));
         }
@@ -198,19 +198,19 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
             // Swap any loose Tangible if applicable.
             // We can go directly -> USDR.
             // The swapper will do min checks.
-            _swapFrom(TNGBL, usdr, ERC20(TNGBL).balanceOf(address(this)), 0);
+            _swapFrom(TNGBL, USDR, ERC20(TNGBL).balanceOf(address(this)), 0);
         }
 
         // Use the max we could currently for 1 USDR.
         uint256 rate = Math.max(
-            _getAmountOut(usdr, asset, 1e9),
+            _getAmountOut(USDR, asset, 1e9),
             _getAmountOutWithFee(1e9)
         );
 
         _totalAssets =
             ERC20(asset).balanceOf(address(this)) +
             // Multiply our balance by the current rate.
-            (ERC20(usdr).balanceOf(address(this)) * rate) /
+            (ERC20(USDR).balanceOf(address(this)) * rate) /
             scaler;
 
         // Health check the amounts since it relies on swap values.
@@ -350,7 +350,7 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
             // Its not more than we have from rounding.
             _amount = Math.min(
                 _amount / scaler,
-                ERC20(usdr).balanceOf(address(this))
+                ERC20(USDR).balanceOf(address(this))
             );
             exchange.swapToUnderlying(_amount, address(this));
         } else {
@@ -373,7 +373,7 @@ contract Tangible is BaseHealthCheck, SolidlySwapper {
      */
     function _poolIsBalanced() internal view returns (bool) {
         // Get the current spot rate in asset.
-        uint256 amount = _getAmountOut(usdr, asset, 1e9);
+        uint256 amount = _getAmountOut(USDR, asset, 1e9);
         // Make sure its within our acceptable range.
         uint256 diff;
         if (amount < one) {
